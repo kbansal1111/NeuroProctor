@@ -1,0 +1,67 @@
+# OS
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.package-lock.json
+
+# Build / output
+dist/
+build/
+out/
+coverage/
+*.tsbuildinfo
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+venv/
+.venv/
+env/
+ENV/
+pip-selfcheck.json
+.mypy_cache/
+.pytest_cache/
+
+# Environment / secrets
+.env
+.env.*.local
+*.secret
+*.key
+
+# IDEs / editors
+.vscode/
+.idea/
+*.iml
+*.sublime-*
+*.sw?
+*.swp
+
+# Logs & temp
+*.log
+logs/
+tmp/
+temp/
+*.tmp
+*.bak
+
+# Compiled / binaries
+*.class
+*.exe
+*.dll
+*.so
+*.o
+*.a
+
+# OS X Icon and resource forks
+Icon?
