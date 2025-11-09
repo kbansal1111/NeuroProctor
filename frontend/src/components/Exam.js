@@ -169,29 +169,61 @@ export default function Exam() {
 
   const checkPermissions = async () => {
     setPermissionError("");
+    
+    // Check if getUserMedia is supported
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setPermissionError("Your browser does not support camera/microphone access. Please use a modern browser.");
+      setCameraPermission("error");
+      setAudioPermission("error");
+      return false;
+    }
+
     try {
-      const cameraStream = await navigator.mediaDevices.getUserMedia({ video: true });
-      cameraStream.getTracks().forEach(track => track.stop());
-      setCameraPermission("granted");
+      // Check camera permission
+      try {
+        const cameraStream = await navigator.mediaDevices.getUserMedia({ video: true });
+        cameraStream.getTracks().forEach(track => track.stop());
+        setCameraPermission("granted");
+      } catch (cameraError) {
+        console.error("Camera permission error:", cameraError);
+        if (cameraError.name === 'NotAllowedError' || cameraError.name === 'PermissionDeniedError') {
+          setCameraPermission("denied");
+        } else if (cameraError.name === 'NotFoundError') {
+          setCameraPermission("not-found");
+        } else {
+          setCameraPermission("error");
+        }
+        throw cameraError;
+      }
       
-      const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      audioStream.getTracks().forEach(track => track.stop());
-      setAudioPermission("granted");
+      // Check audio permission
+      try {
+        const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        audioStream.getTracks().forEach(track => track.stop());
+        setAudioPermission("granted");
+      } catch (audioError) {
+        console.error("Audio permission error:", audioError);
+        if (audioError.name === 'NotAllowedError' || audioError.name === 'PermissionDeniedError') {
+          setAudioPermission("denied");
+        } else if (audioError.name === 'NotFoundError') {
+          setAudioPermission("not-found");
+        } else {
+          setAudioPermission("error");
+        }
+        throw audioError;
+      }
       
       return true;
     } catch (error) {
+      console.error("Permission check failed:", error);
       if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
         setPermissionError("Camera and microphone permissions are required to start the exam. Please allow access and try again.");
-        setCameraPermission("denied");
-        setAudioPermission("denied");
       } else if (error.name === 'NotFoundError') {
         setPermissionError("Camera or microphone not found. Please ensure your devices are connected.");
-        setCameraPermission("not-found");
-        setAudioPermission("not-found");
+      } else if (error.name === 'NotReadableError') {
+        setPermissionError("Camera or microphone is already in use by another application. Please close other applications and try again.");
       } else {
-        setPermissionError(`Error accessing camera/microphone: ${error.message}`);
-        setCameraPermission("error");
-        setAudioPermission("error");
+        setPermissionError(`Error accessing camera/microphone: ${error.message || 'Unknown error'}`);
       }
       return false;
     }
@@ -203,12 +235,28 @@ export default function Exam() {
       return;
     }
 
+    // Request fullscreen FIRST while still in user gesture context
+    let fullscreenRequested = false;
+    if (examRef.current && document.fullscreenEnabled) {
+      try {
+        await examRef.current.requestFullscreen();
+        fullscreenRequested = true;
+      } catch (err) {
+        console.warn('Fullscreen request failed:', err);
+        // Continue anyway, fullscreen is not critical
+      }
+    }
+
     setRegisterError("");
     setRegistering(true);
     const face = webcamRef.current.getScreenshot();
     if (!face) {
       setRegisterError("Could not capture image from webcam.");
       setRegistering(false);
+      // Exit fullscreen if we entered it
+      if (fullscreenRequested && document.fullscreenElement) {
+        document.exitFullscreen();
+      }
       return;
     }
 
@@ -238,18 +286,31 @@ export default function Exam() {
         console.warn('Exam reset call failed', err);
       }
 
-      if (examRef.current && document.fullscreenEnabled) {
-        await examRef.current.requestFullscreen();
-      }
       setStarted(true);
     } else if (data.status === "no_face") {
       setRegisterError("No face detected. Please ensure your face is visible and try again.");
+      // Exit fullscreen if we entered it
+      if (fullscreenRequested && document.fullscreenElement) {
+        document.exitFullscreen();
+      }
     } else if (data.status === "multiple_faces") {
       setRegisterError("Multiple faces detected. Please ensure only you are visible and try again.");
+      // Exit fullscreen if we entered it
+      if (fullscreenRequested && document.fullscreenElement) {
+        document.exitFullscreen();
+      }
     } else if (data.status === "poor_quality") {
       setRegisterError(`Face image quality issue: ${data.message}. Please ensure good lighting and a clear view of your face.`);
+      // Exit fullscreen if we entered it
+      if (fullscreenRequested && document.fullscreenElement) {
+        document.exitFullscreen();
+      }
     } else {
       setRegisterError("Face registration failed. Please try again.");
+      // Exit fullscreen if we entered it
+      if (fullscreenRequested && document.fullscreenElement) {
+        document.exitFullscreen();
+      }
     }
     setRegistering(false);
   };
@@ -389,6 +450,8 @@ export default function Exam() {
       const blob = await fetch(dataUrl).then(res => res.blob());
       const formData = new FormData();
       formData.append("image", blob, "frame.jpg");
+      formData.append("student_id", rollNumber);
+      formData.append("exam_id", examId);
 
       const res = await fetch("http://localhost:5000/detect-object", {
         method: "POST",
@@ -396,7 +459,13 @@ export default function Exam() {
       });
       const data = await res.json();
 
-      setObjectDetectionStatus(`Last check: ${data.status}`);
+      if (data.status === 'forbidden_object') {
+        setObjectDetectionStatus(`⚠️ FORBIDDEN: ${data.objects?.join(', ')}`);
+      } else if (data.status === 'clear') {
+        setObjectDetectionStatus(`✓ Clear (${data.all_detections?.length || 0} objects)`);
+      } else if (data.status === 'error') {
+        setObjectDetectionStatus(`Object detection unavailable`);
+      }
 
       if (data.status === "forbidden_object") {
         alert(`Forbidden object detected: ${data.objects?.join(', ')}. Exam will be submitted.`);
@@ -404,8 +473,9 @@ export default function Exam() {
       }
     } catch (error) {
       console.error("Object detection error:", error);
+      setObjectDetectionStatus("Detection error");
     }
-  }, [handleSubmit]);
+  }, [rollNumber, examId, handleSubmit]);
 
   // Audio monitoring functions
   const startAudioMonitoring = useCallback(async () => {

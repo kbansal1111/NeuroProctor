@@ -43,10 +43,32 @@ audio_event_queue = deque()
 audio_queue_lock = threading.Lock()
 MAX_AUDIO_QUEUE = 200
 
-# Load YOLOv5 model
-print("Skipping YOLO model loading for testing...")
-YOLO_AVAILABLE = False
-model = None
+# Load YOLOv5 model for object detection (cell phone, laptop, etc.)
+print("Loading YOLO model for object detection...")
+try:
+    import torch
+    # Try to load custom trained model first, fallback to pretrained
+    model_path = 'yolov5n.pt'  # Use the nano model for faster inference
+    if os.path.exists(model_path):
+        model = torch.hub.load('ultralytics/yolov5', 'custom', path=model_path, force_reload=False)
+        print(f"✓ Loaded custom YOLOv5 model from {model_path}")
+    else:
+        # Fallback to pretrained model
+        model = torch.hub.load('ultralytics/yolov5', 'yolov5n', pretrained=True, force_reload=False)
+        print("✓ Loaded pretrained YOLOv5n model")
+    
+    # Set model confidence threshold
+    model.conf = 0.4  # Confidence threshold (lower to detect more objects)
+    model.iou = 0.45  # IoU threshold for NMS
+    model.max_det = 10  # Maximum detections per image
+    
+    YOLO_AVAILABLE = True
+    print("✓ YOLO model loaded successfully for cell phone detection")
+except Exception as e:
+    print(f"✗ Failed to load YOLO model: {e}")
+    print("  Cell phone/laptop detection will not be available")
+    YOLO_AVAILABLE = False
+    model = None
 
 # Face Recognition Model (LBPH)
 face_recognizer = None
@@ -699,45 +721,111 @@ def recognize_face():
 
 @app.route('/detect-object', methods=['POST'])
 def detect_object():
-    if not YOLO_AVAILABLE:
-        return jsonify({'status': 'error', 'message': 'Object detection not available'}), 503
+    """
+    Detect forbidden objects like cell phones and laptops using YOLOv5
+    """
+    if not YOLO_AVAILABLE or model is None:
+        return jsonify({
+            'status': 'error', 
+            'message': 'Object detection not available'
+        }), 503
     
-    file = request.files['image']
-    npimg = np.frombuffer(file.read(), np.uint8)
-    frame = cv2.imdecode(npimg, cv2.IMREAD_COLOR)
-    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-
-    results = model(rgb, imgsz=DEFAULT_IMGSZ, conf=DEFAULT_CONF)
-    if isinstance(results, list):
-        res = results[0]
-    else:
-        res = results
-
-    data = []
     try:
-        boxes = getattr(res, "boxes", None)
-        names = getattr(model, "names", {})
-        if boxes is not None and len(boxes) > 0:
-            xyxy = boxes.xyxy.cpu().numpy() if hasattr(boxes.xyxy, "cpu") else np.array(boxes.xyxy)
-            confs = boxes.conf.cpu().numpy() if hasattr(boxes.conf, "cpu") else np.array(boxes.conf)
-            cls = boxes.cls.cpu().numpy() if hasattr(boxes.cls, "cpu") else np.array(boxes.cls)
-            for b, c, cl in zip(xyxy, confs, cls):
-                x1, y1, x2, y2 = [float(x) for x in b]
-                name = names.get(int(cl), str(int(cl)))
-                conf = float(c)
-                if conf > 0.5:
-                    data.append({'name': name, 'confidence': conf})
+        # Read and decode image
+        file = request.files['image']
+        npimg = np.frombuffer(file.read(), np.uint8)
+        frame = cv2.imdecode(npimg, cv2.IMREAD_COLOR)
+        
+        if frame is None:
+            return jsonify({
+                'status': 'error',
+                'message': 'Failed to decode image'
+            }), 400
+        
+        # Convert BGR to RGB (YOLO expects RGB)
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+        # Run YOLO detection with proper parameters
+        results = model(rgb, size=640)  # Use 'size' parameter instead of 'imgsz'
+        
+        # Extract detection results
+        detections = results.pandas().xyxy[0]  # Get detections as pandas DataFrame
+        
+        # Define forbidden objects (COCO dataset class names)
+        # COCO class names: 'cell phone' (class 67), 'laptop' (class 63), 'book' (class 73)
+        forbidden_objects = {
+            'cell phone': 67,
+            'laptop': 63,
+            'book': 73
+        }
+        
+        detected_forbidden = []
+        all_detections = []
+        
+        for _, detection in detections.iterrows():
+            class_name = detection['name']
+            confidence = detection['confidence']
+            
+            # Store all detections with confidence > 0.3
+            if confidence > 0.3:
+                all_detections.append({
+                    'name': class_name,
+                    'confidence': float(confidence)
+                })
+            
+            # Check if it's a forbidden object with good confidence
+            if class_name in forbidden_objects and confidence > 0.4:
+                detected_forbidden.append({
+                    'name': class_name,
+                    'confidence': float(confidence)
+                })
+                print(f"⚠️ FORBIDDEN OBJECT DETECTED: {class_name} (confidence: {confidence:.2f})")
+        
+        if detected_forbidden:
+            # Log forbidden object detection to database
+            database = get_db_connection()
+            if database is not None:
+                try:
+                    student_id = request.form.get('student_id', 'unknown')
+                    exam_id = request.form.get('exam_id', 'exam_2025_ai')
+                    
+                    alert_doc = {
+                        "student_id": student_id,
+                        "exam_id": exam_id,
+                        "direction": f"ALERT: Forbidden Object - {', '.join([d['name'] for d in detected_forbidden])}",
+                        "alert_time": datetime.now(),
+                        "details": {
+                            "type": "forbidden_object",
+                            "objects": detected_forbidden,
+                            "all_detections": all_detections,
+                            "time": datetime.now().isoformat()
+                        },
+                        "created_at": datetime.now()
+                    }
+                    database.alerts.insert_one(alert_doc)
+                except Exception as e:
+                    print(f"Error logging forbidden object alert: {e}")
+            
+            return jsonify({
+                'status': 'forbidden_object',
+                'objects': [d['name'] for d in detected_forbidden],
+                'details': detected_forbidden,
+                'all_detections': all_detections
+            })
+        else:
+            return jsonify({
+                'status': 'clear',
+                'all_detections': all_detections
+            })
+            
     except Exception as e:
-        print(f"Object detection parsing error: {e}")
-
-    labels = [d['name'] for d in data]
-    forbidden = {'cell phone', 'laptop'}
-    detected = [label for label in labels if label in forbidden]
-
-    if detected:
-        return jsonify({'status': 'forbidden_object', 'objects': detected})
-    else:
-        return jsonify({'status': 'clear'})
+        print(f"Object detection error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'status': 'error',
+            'message': f'Detection failed: {str(e)}'
+        }), 500
 
 @app.route('/detect-audio-anomaly', methods=['POST'])
 def detect_audio_anomaly():
