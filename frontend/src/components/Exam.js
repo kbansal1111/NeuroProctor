@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import Webcam from "react-webcam";
+import { setupKeyboardRestriction, setupTabSwitchDetection } from "../utils/keyboardRestriction";
 
 export default function Exam() {
   const examRef = useRef(null);
@@ -114,12 +115,29 @@ export default function Exam() {
   const [objectDetectionStatus, setObjectDetectionStatus] = useState("");
   const [audioAlert, setAudioAlert] = useState("");
   const [isAudioMonitoring, setIsAudioMonitoring] = useState(false);
+  const eventSourceRef = useRef(null);
   const audioContextRef = useRef(null);
   const analyserRef = useRef(null);
   const microphoneRef = useRef(null);
   const [cameraPermission, setCameraPermission] = useState(null);
   const [audioPermission, setAudioPermission] = useState(null);
   const [permissionError, setPermissionError] = useState("");
+  const [keyboardWarning, setKeyboardWarning] = useState("");
+  const keyboardWarningTimeoutRef = useRef(null);
+
+  const rollNumber = localStorage.getItem("rollNumber");
+  const examId = "exam_2025_ai"; // You can make this dynamic
+
+  // Show keyboard warning with auto-dismiss
+  const showKeyboardWarning = useCallback((message) => {
+    setKeyboardWarning(message);
+    if (keyboardWarningTimeoutRef.current) {
+      clearTimeout(keyboardWarningTimeoutRef.current);
+    }
+    keyboardWarningTimeoutRef.current = setTimeout(() => {
+      setKeyboardWarning("");
+    }, 3000);
+  }, []);
 
   // Memoized handleSubmit to avoid useEffect warning
   const handleSubmit = useCallback(() => {
@@ -185,6 +203,7 @@ export default function Exam() {
     const blob = await fetch(face).then(res => res.blob());
     const formData = new FormData();
     formData.append("roll_number", rollNumber);
+    formData.append("exam_id", examId);
     formData.append("image", blob, "face.jpg");
 
     // Register face "http://127.0.0.1:5000/register-face"
@@ -195,6 +214,17 @@ export default function Exam() {
     const data = await res.json();
 
     if (data.status === "registered") {
+      try {
+        // Reset server-side exam alerts/ufm when this student starts the exam
+        await fetch("http://localhost:5000/api/exam/reset", {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ exam_id: examId })
+        });
+      } catch (err) {
+        console.warn('Exam reset call failed', err);
+      }
+
       if (examRef.current && document.fullscreenEnabled) {
         await examRef.current.requestFullscreen();
       }
@@ -210,6 +240,47 @@ export default function Exam() {
     }
     setRegistering(false);
   };
+
+  // Keyboard restriction and tab switch detection
+  useEffect(() => {
+    if (!started || submitted) return;
+
+    // Setup keyboard restriction
+    const keyboardRestriction = setupKeyboardRestriction({
+      studentId: rollNumber,
+      examId: examId,
+      onShortcutWarning: showKeyboardWarning,
+      onKeyAlert: (type) => {
+        console.log(`Key alert recorded: ${type}`);
+      },
+      backendUrl: 'http://localhost:5000'
+    });
+
+    // Setup tab switch detection (terminates exam)
+    const tabSwitchDetection = setupTabSwitchDetection({
+      studentId: rollNumber,
+      examId: examId,
+      onTabSwitch: () => {
+        alert("⚠️ Tab switching detected! Your exam has been automatically submitted.");
+        handleSubmit();
+      },
+      backendUrl: 'http://localhost:5000',
+      autoTerminate: true
+    });
+
+    // Attach all listeners
+    keyboardRestriction.attach();
+    tabSwitchDetection.attach();
+
+    // Cleanup on unmount or when exam ends
+    return () => {
+      keyboardRestriction.detach();
+      tabSwitchDetection.detach();
+      if (keyboardWarningTimeoutRef.current) {
+        clearTimeout(keyboardWarningTimeoutRef.current);
+      }
+    };
+  }, [started, submitted, rollNumber, examId, handleSubmit, showKeyboardWarning]);
 
   // Now useEffect can safely use handleSubmit
   useEffect(() => {
@@ -228,8 +299,6 @@ export default function Exam() {
   useEffect(() => {
     checkPermissions();
   }, []);
-
-  const rollNumber = localStorage.getItem("rollNumber");
 
   const verifyFaceDuringExam = useCallback(async (dataUrl) => {
     try {
@@ -346,8 +415,8 @@ export default function Exam() {
     const dataArray = new Uint8Array(bufferLength);
     analyserRef.current.getByteFrequencyData(dataArray);
 
-    const squares = Array.from(dataArray).map(x => x * x);
-    const rms = Math.sqrt(squares.reduce((sum, val) => sum + val, 0) / bufferLength) / 255;
+  const squares = Array.from(dataArray).map(x => x * x);
+  const rms = Math.sqrt(squares.reduce((sum, val) => sum + val, 0) / bufferLength) / 255;
     
     const speechRangeStart = Math.floor(bufferLength * 0.08);
     const speechRangeEnd = Math.floor(bufferLength * 0.65);
@@ -368,29 +437,43 @@ export default function Exam() {
 
     const volumeLevel = Math.max(rms, topFrequencies, avgEnergy);
 
-    if (volumeLevel > 0.08 || frequencyPeaks.length > 5) {
+    // volume percent for easy thresholds
+    const volPct = volumeLevel * 100;
+
+    // Immediate client-side anomaly checks per user request: <10% or >35% are anomalies
+    if (volPct < 10 || volPct > 35) {
+      console.log(`Audio (client check) - anomaly by percent: ${volPct.toFixed(1)}% (peaks=${frequencyPeaks.length})`);
+      // show immediate UI alert while still sending to backend
+      setAudioAlert(`🔊 ALERT: Voice level ${volPct.toFixed(1)}%`);
+    } else if (volumeLevel > 0.08 || frequencyPeaks.length > 5) {
       console.log(`Audio: Vol=${volumeLevel.toFixed(3)}, Max=${maxAmplitude.toFixed(3)}, Peaks=${frequencyPeaks.length}`);
     }
 
     try {
+      // Send compact features to backend for analysis
+      const payload = {
+        student_id: rollNumber,
+        audio_features: {
+          volume_level: volumeLevel,
+          // send small set of peaks (floats between 0-1)
+          frequency_data: frequencyPeaks.slice(0, 40),
+          duration: 1.0
+        }
+      };
+
       const res = await fetch("http://localhost:5000/detect-audio-anomaly", {
         method: "POST",
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          student_id: rollNumber,
-          audio_features: {
-            volume_level: volumeLevel,
-            frequency_data: frequencyPeaks,
-            duration: 1.0
-          }
-        })
+        body: JSON.stringify(payload)
       });
-      
+
       const data = await res.json();
-      
+
+      // backend returns anomaly_reasons when anomaly detected
       if (data.status === "anomaly_detected") {
-        setAudioAlert(`🔊 ALERT: ${data.anomalies.join(", ")}`);
-        console.log("⚠️ Audio anomaly:", data.anomalies);
+        const reasons = data.anomaly_reasons || data.anomalies || [];
+        setAudioAlert(`🔊 ALERT: ${reasons.join(", ")}`);
+        console.log("⚠️ Audio anomaly detected:", reasons, payload);
       } else {
         if (volumeLevel > 0.05) {
           setAudioAlert(`🎤 Monitoring (${(volumeLevel * 100).toFixed(0)}%)`);
@@ -402,6 +485,61 @@ export default function Exam() {
       console.error("Audio analysis error:", error);
     }
   }, [isAudioMonitoring, rollNumber]);
+
+  // Server-Sent Events connection to receive real-time audio anomaly events from backend
+  useEffect(() => {
+    if (!started || submitted) return;
+
+    try {
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+      }
+      const es = new EventSource('http://localhost:5000/stream-audio-anomaly');
+      eventSourceRef.current = es;
+
+      es.onmessage = (e) => {
+        try {
+          const payload = JSON.parse(e.data);
+          if (!payload) return;
+          // only show events for this student
+          if (payload.student_id && payload.student_id !== rollNumber) return;
+          if (payload.status === 'anomaly_detected') {
+            const reasons = payload.anomaly_reasons || [];
+            setAudioAlert(`🔊 ALERT (server): ${reasons.join(', ')}`);
+            // Optionally, flash other UI indicators here
+          } else if (payload.status === 'clear') {
+            // show monitoring state but don't override stronger alerts
+            setAudioAlert(prev => (prev && prev.startsWith('🔊') ? prev : `🔇 Audio OK (${Math.round((payload.volume_level || 0) * 100)}%)`));
+          }
+        } catch (err) {
+          console.error('SSE parse error', err);
+        }
+      };
+
+      es.onerror = (err) => {
+        console.warn('EventSource error', err);
+        // reconnect logic: close and try again later
+        try { es.close(); } catch (e) {}
+        eventSourceRef.current = null;
+        setTimeout(() => {
+          if (!eventSourceRef.current && started && !submitted) {
+            try {
+              eventSourceRef.current = new EventSource('http://localhost:5000/stream-audio-anomaly');
+            } catch (e) {}
+          }
+        }, 3000);
+      };
+    } catch (e) {
+      console.warn('SSE setup failed', e);
+    }
+
+    return () => {
+      if (eventSourceRef.current) {
+        try { eventSourceRef.current.close(); } catch (e) {}
+        eventSourceRef.current = null;
+      }
+    };
+  }, [started, submitted, rollNumber]);
 
   const sendFrameToBackend = useCallback((dataUrl) => {
     fetch(dataUrl)
@@ -511,77 +649,7 @@ export default function Exam() {
       return () => clearInterval(interval);
   }, [started, submitted, isAudioMonitoring, analyzeAudio]);
 
-  // Disable copy/paste functionality during exam
-  useEffect(() => {
-    const handleCopyPaste = (e) => {
-      e.preventDefault();
-      alert("⚠️ Copy/paste is not allowed during the exam! Please refrain from doing so.");
-    };
-
-    document.addEventListener("copy", handleCopyPaste);
-    document.addEventListener("paste", handleCopyPaste);
-
-    return () => {
-      document.removeEventListener("copy", handleCopyPaste);
-      document.removeEventListener("paste", handleCopyPaste);
-    };
-  }, []);
-
-  // Disable tab switching during exam
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.hidden && started && !submitted) {
-        alert("⚠️ Tab switching is not allowed during the exam! Please stay focused on the exam tab.");
-        // Attempt to re-enter fullscreen mode
-        if (examRef.current && document.fullscreenEnabled) {
-          examRef.current.requestFullscreen().catch((err) => {
-            console.error("Failed to re-enter fullscreen mode:", err);
-          });
-        }
-      }
-    };
-
-    const handleFullscreenChange = () => {
-      if (!document.fullscreenElement && started && !submitted) {
-        alert("⚠️ Fullscreen mode is required for the exam! Re-entering fullscreen mode.");
-        if (examRef.current && document.fullscreenEnabled) {
-          examRef.current.requestFullscreen().catch((err) => {
-            console.error("Failed to re-enter fullscreen mode:", err);
-          });
-        }
-      }
-    };
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    document.addEventListener("fullscreenchange", handleFullscreenChange);
-
-    return () => {
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-      document.removeEventListener("fullscreenchange", handleFullscreenChange);
-    };
-  }, [started, submitted]);
-
-  // Prevent exiting fullscreen during the exam
-  useEffect(() => {
-    const preventFullscreenExit = (e) => {
-      if (!document.fullscreenElement && started && !submitted) {
-        e.preventDefault();
-        alert("⚠️ Exiting fullscreen is not allowed during the exam! Re-entering fullscreen mode.");
-        if (examRef.current && document.fullscreenEnabled) {
-          examRef.current.requestFullscreen().catch((err) => {
-            console.error("Failed to re-enter fullscreen mode:", err);
-          });
-        }
-      }
-    };
-
-    document.addEventListener("fullscreenchange", preventFullscreenExit);
-
-    return () => {
-      document.removeEventListener("fullscreenchange", preventFullscreenExit);
-    };
-  }, [started, submitted]);
-
+  // Timer logic
   const formatTime = (seconds) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -589,44 +657,56 @@ export default function Exam() {
   };
 
   return (
-    <div ref={examRef} style={{ 
-      backgroundColor: '#f8f9fa', 
-      minHeight: '100vh',
-      fontFamily: 'Arial, sans-serif'
-    }}>
-      {/* Header Warning */}
+    <div ref={examRef} className="exam-page">
+      {/* Keyboard Warning Alert */}
+      {keyboardWarning && (
+        <div style={{
+          position: 'fixed',
+          top: '20px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 10000,
+          backgroundColor: '#ff9800',
+          color: 'white',
+          padding: '15px 30px',
+          borderRadius: '10px',
+          boxShadow: '0 5px 20px rgba(255, 152, 0, 0.5)',
+          fontSize: '1.1rem',
+          fontWeight: 'bold',
+          textAlign: 'center',
+          minWidth: '400px',
+          animation: 'slideDown 0.3s ease'
+        }}>
+          {keyboardWarning}
+        </div>
+      )}
+
+      {/* Header Warning - fixed and high z-index so it remains visible (including in fullscreen) */}
       <div style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        width: '100%',
         backgroundColor: '#fff3cd',
-        border: '2px solid #ffeaa7',
+        borderBottom: '2px solid #ffeaa7',
         color: '#856404',
-        padding: '15px',
+        padding: '12px 16px',
         textAlign: 'center',
-        fontSize: '1.2rem',
-        fontWeight: 'bold',
-        marginBottom: '20px'
-      }}>
+        fontSize: '1.05rem',
+        fontWeight: '700',
+        zIndex: 1100, /* lower than header so nav remains on top */
+        boxShadow: '0 3px 10px rgba(0,0,0,0.12)'
+      }} aria-live="polite">
         ⚠️ Do not exit fullscreen mode. You are being monitored by AI proctoring.
       </div>
 
+      {/* spacer so page content isn't covered by the fixed header */}
+  <div style={{ height: '64px' }} />
+
       {!started ? (
         // Pre-exam setup
-        <div style={{
-          display: 'flex',
-          flexDirection: 'column',
-          justifyContent: 'center',
-          alignItems: 'center',
-          height: '70vh',
-          padding: '20px'
-        }}>
-          <div style={{
-            backgroundColor: 'white',
-            borderRadius: '20px',
-            padding: '40px',
-            boxShadow: '0 10px 30px rgba(0,0,0,0.1)',
-            textAlign: 'center',
-            maxWidth: '500px',
-            width: '100%'
-          }}>
+        <div className="exam-setup">
+          <div className="exam-setup-card">
             <h1 style={{
               color: '#2c3e50',
               fontSize: '2.5rem',
@@ -642,188 +722,67 @@ export default function Exam() {
               screenshotFormat="image/jpeg"
               width={320}
               height={240}
-              style={{
-                borderRadius: '15px',
-                border: '3px solid #e9ecef',
-                marginBottom: '20px',
-                boxShadow: '0 5px 15px rgba(0,0,0,0.1)'
-              }}
+              className="exam-webcam"
             />
             
-            <div style={{
-              marginBottom: '20px',
-              padding: '15px',
-              backgroundColor: '#f8f9fa',
-              borderRadius: '10px',
-              border: '1px solid #dee2e6'
-            }}>
+            <div className="permission-box">
               <h3 style={{ color: '#2c3e50', marginBottom: '15px', fontSize: '1.2rem' }}>
                 📋 Permission Status
               </h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                <div style={{ 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  justifyContent: 'space-between',
-                  padding: '10px',
-                  backgroundColor: 'white',
-                  borderRadius: '8px'
-                }}>
-                  <span style={{ fontWeight: 'bold' }}>📷 Camera:</span>
-                  <span style={{ 
-                    color: cameraPermission === 'granted' ? '#28a745' : 
-                           cameraPermission === 'denied' ? '#dc3545' : 
-                           cameraPermission === null ? '#6c757d' : '#ffc107',
-                    fontWeight: 'bold'
-                  }}>
-                    {cameraPermission === 'granted' ? '✓ Granted' : 
-                     cameraPermission === 'denied' ? '✗ Denied' : 
-                     cameraPermission === null ? '⏳ Checking...' : '⚠ Error'}
+              <div className="permission-list">
+                <div className="permission-item">
+                  <span style={{ fontWeight: '700' }}>📷 Camera:</span>
+                  <span style={{ color: cameraPermission === 'granted' ? 'var(--success)' : cameraPermission === 'denied' ? 'var(--danger)' : '#6c757d', fontWeight: '700' }}>
+                    {cameraPermission === 'granted' ? '✓ Granted' : cameraPermission === 'denied' ? '✗ Denied' : cameraPermission === null ? '⏳ Checking...' : '⚠ Error'}
                   </span>
                 </div>
-                <div style={{ 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  justifyContent: 'space-between',
-                  padding: '10px',
-                  backgroundColor: 'white',
-                  borderRadius: '8px'
-                }}>
-                  <span style={{ fontWeight: 'bold' }}>🎤 Microphone:</span>
-                  <span style={{ 
-                    color: audioPermission === 'granted' ? '#28a745' : 
-                           audioPermission === 'denied' ? '#dc3545' : 
-                           audioPermission === null ? '#6c757d' : '#ffc107',
-                    fontWeight: 'bold'
-                  }}>
-                    {audioPermission === 'granted' ? '✓ Granted' : 
-                     audioPermission === 'denied' ? '✗ Denied' : 
-                     audioPermission === null ? '⏳ Checking...' : '⚠ Error'}
+                <div className="permission-item">
+                  <span style={{ fontWeight: '700' }}>🎤 Microphone:</span>
+                  <span style={{ color: audioPermission === 'granted' ? 'var(--success)' : audioPermission === 'denied' ? 'var(--danger)' : '#6c757d', fontWeight: '700' }}>
+                    {audioPermission === 'granted' ? '✓ Granted' : audioPermission === 'denied' ? '✗ Denied' : audioPermission === null ? '⏳ Checking...' : '⚠ Error'}
                   </span>
                 </div>
               </div>
             </div>
 
             {permissionError && (
-              <div style={{
-                backgroundColor: '#f8d7da',
-                color: '#721c24',
-                padding: '15px',
-                borderRadius: '10px',
-                marginBottom: '20px',
-                border: '1px solid #f5c6cb'
-              }}>
-                ⚠️ {permissionError}
-              </div>
+              <div className="register-error">⚠️ {permissionError}</div>
             )}
             
             {registerError && (
-              <div style={{
-                backgroundColor: '#ff4444',
-                color: '#ffffff',
-                padding: '15px',
-                borderRadius: '10px',
-                marginBottom: '20px',
-                border: '2px solid #cc0000',
-                boxShadow: '0 4px 12px rgba(255, 68, 68, 0.3)',
-                fontWeight: 'bold'
-              }}>
-                ⚠️ {registerError}
-              </div>
+              <div className="register-error">⚠️ {registerError}</div>
             )}
             
-            <button 
-              onClick={handleStartExam} 
+            <button
+              onClick={handleStartExam}
               disabled={registering || cameraPermission !== 'granted' || audioPermission !== 'granted'}
-              style={{
-                backgroundColor: (registering || cameraPermission !== 'granted' || audioPermission !== 'granted') ? '#95a5a6' : 'linear-gradient(135deg, #667eea, #764ba2)',
-                color: 'white',
-                border: 'none',
-                padding: '15px 30px',
-                borderRadius: '10px',
-                fontSize: '1.2rem',
-                fontWeight: 'bold',
-                cursor: (registering || cameraPermission !== 'granted' || audioPermission !== 'granted') ? 'not-allowed' : 'pointer',
-                transition: 'all 0.3s ease',
-                boxShadow: '0 5px 15px rgba(102, 126, 234, 0.3)'
-              }}
+              className="exam-start-btn btn-primary"
+              style={{ background: (registering || cameraPermission !== 'granted' || audioPermission !== 'granted') ? '#95a5a6' : undefined }}
             >
-              {registering ? "🔄 Registering..." : " Start Exam"}
+              {registering ? "🔄 Registering..." : "Start Exam"}
             </button>
 
             {(cameraPermission === 'denied' || audioPermission === 'denied' || permissionError) && (
-              <button 
-                onClick={checkPermissions}
-                style={{
-                  backgroundColor: '#17a2b8',
-                  color: 'white',
-                  border: 'none',
-                  padding: '12px 24px',
-                  borderRadius: '10px',
-                  fontSize: '1rem',
-                  fontWeight: 'bold',
-                  cursor: 'pointer',
-                  marginTop: '15px',
-                  transition: 'all 0.3s ease'
-                }}
-              >
-                🔄 Retry Permissions
-              </button>
+              <button onClick={checkPermissions} className="exam-start-btn btn-outline" style={{ marginTop: 12, background: 'transparent' }}>🔄 Retry Permissions</button>
             )}
           </div>
         </div>
       ) : (
         // Exam interface
-        <div style={{ display: 'flex', height: 'calc(100vh - 100px)' }}>
+        <div className="exam-grid">
           {/* Left: Questions */}
-          <div style={{
-            flex: '2',
-            padding: '20px',
-            backgroundColor: 'white',
-            borderRadius: '15px',
-            margin: '0 10px',
-            boxShadow: '0 5px 15px rgba(0,0,0,0.1)',
-            overflowY: 'auto'
-          }}>
+          <div className="exam-left">
+            <div className="card" style={{ padding: '20px', overflowY: 'auto' }}>
             {/* Timer and Progress */}
-            <div style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              marginBottom: '30px',
-              padding: '20px',
-              backgroundColor: '#e3f2fd',
-              borderRadius: '10px',
-              border: '2px solid #2196f3'
-            }}>
-              <div style={{
-                fontSize: '1.5rem',
-                fontWeight: 'bold',
-                color: timeLeft < 60 ? '#f44336' : '#1976d2'
-              }}>
-                Time Left: {formatTime(timeLeft)}
-              </div>
-              <div style={{
-                backgroundColor: '#ff9800',
-                color: 'white',
-                padding: '8px 15px',
-                borderRadius: '20px',
-                fontWeight: 'bold'
-              }}>
-                Question {currentQuestionIndex + 1} of {questions.length}
-              </div>
+            <div className="exam-controls">
+              <div className="timer-box" style={{ color: timeLeft < 60 ? '#fff' : undefined }}>Time Left: {formatTime(timeLeft)}</div>
+              <div className="progress-badge">Question {currentQuestionIndex + 1} of {questions.length}</div>
             </div>
 
             {!submitted ? (
               <>
                 {/* Current Question */}
-                <div style={{
-                  backgroundColor: '#fafafa',
-                  padding: '30px',
-                  borderRadius: '15px',
-                  border: '2px solid #e0e0e0',
-                  marginBottom: '30px'
-                }}>
+                <div className="question-card">
                   <h3 style={{
                     color: '#2c3e50',
                     fontSize: '1.3rem',
@@ -834,7 +793,7 @@ export default function Exam() {
                   </h3>
                   
                   {questions[currentQuestionIndex].answerOptions.map((option, oIdx) => (
-                    <div key={oIdx} style={{ marginBottom: '15px' }}>
+                    <div key={oIdx} style={{ marginBottom: '12px' }}>
                       <input
                         type="radio"
                         id={`q${currentQuestionIndex}-o${oIdx}`}
@@ -846,24 +805,14 @@ export default function Exam() {
                           updated[currentQuestionIndex] = oIdx;
                           setUserAnswers(updated);
                         }}
-                        style={{
-                          marginRight: '12px',
-                          transform: 'scale(1.2)'
-                        }}
+                        style={{ marginRight: '12px', transform: 'scale(1.15)' }}
                       />
-                      <label 
+                      <label
                         htmlFor={`q${currentQuestionIndex}-o${oIdx}`}
+                        className="answer-option"
                         style={{
-                          color: '#34495e',
-                          fontSize: '1.1rem',
-                          cursor: 'pointer',
-                          padding: '10px 15px',
-                          borderRadius: '8px',
                           backgroundColor: userAnswers[currentQuestionIndex] === oIdx ? '#e8f5e8' : 'transparent',
-                          border: userAnswers[currentQuestionIndex] === oIdx ? '2px solid #4caf50' : '1px solid #ddd',
-                          transition: 'all 0.3s ease',
-                          display: 'inline-block',
-                          minWidth: '200px'
+                          border: userAnswers[currentQuestionIndex] === oIdx ? '2px solid #4caf50' : '1px solid #ddd'
                         }}
                       >
                         {option.answerText}
@@ -873,85 +822,22 @@ export default function Exam() {
                 </div>
 
                 {/* Navigation */}
-                <div style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  marginBottom: '30px'
-                }}>
-                  <button 
-                    onClick={() => setCurrentQuestionIndex(Math.max(0, currentQuestionIndex - 1))}
-                    disabled={currentQuestionIndex === 0}
-                    style={{
-                      backgroundColor: currentQuestionIndex === 0 ? '#95a5a6' : '#17a2b8',
-                      color: 'white',
-                      border: 'none',
-                      padding: '12px 25px',
-                      borderRadius: '8px',
-                      fontWeight: 'bold',
-                      cursor: currentQuestionIndex === 0 ? 'not-allowed' : 'pointer'
-                    }}
-                  >
-                    ⬅️ Previous
-                  </button>
-                  
-                  <span style={{
-                    backgroundColor: '#6f42c1',
-                    color: 'white',
-                    padding: '10px 20px',
-                    borderRadius: '20px',
-                    fontWeight: 'bold'
-                  }}>
-                     {currentQuestionIndex + 1} / {questions.length}
-                  </span>
-                  
-                  <button 
-                    onClick={() => setCurrentQuestionIndex(Math.min(questions.length - 1, currentQuestionIndex + 1))}
-                    disabled={currentQuestionIndex === questions.length - 1}
-                    style={{
-                      backgroundColor: currentQuestionIndex === questions.length - 1 ? '#95a5a6' : '#28a745',
-                      color: 'white',
-                      border: 'none',
-                      padding: '12px 25px',
-                      borderRadius: '8px',
-                      fontWeight: 'bold',
-                      cursor: currentQuestionIndex === questions.length - 1 ? 'not-allowed' : 'pointer'
-                    }}
-                  >
-                    Next ➡️
-                  </button>
+                <div className="nav-buttons">
+                  <button onClick={() => setCurrentQuestionIndex(Math.max(0, currentQuestionIndex - 1))} disabled={currentQuestionIndex === 0} className="btn" style={{ background: currentQuestionIndex === 0 ? '#95a5a6' : undefined }}>⬅️ Previous</button>
+
+                  <span style={{ backgroundColor: '#6f42c1', color: 'white', padding: '10px 20px', borderRadius: '20px', fontWeight: '700' }}>{currentQuestionIndex + 1} / {questions.length}</span>
+
+                  <button onClick={() => setCurrentQuestionIndex(Math.min(questions.length - 1, currentQuestionIndex + 1))} disabled={currentQuestionIndex === questions.length - 1} className="btn" style={{ background: currentQuestionIndex === questions.length - 1 ? '#95a5a6' : undefined }}>Next ➡️</button>
                 </div>
 
                 {/* Submit Button */}
                 {currentQuestionIndex === questions.length - 1 && (
-                  <button 
-                    onClick={handleSubmit}
-                    style={{
-                      backgroundColor: '#dc3545',
-                      color: 'white',
-                      border: 'none',
-                      padding: '15px 30px',
-                      borderRadius: '10px',
-                      fontSize: '1.2rem',
-                      fontWeight: 'bold',
-                      cursor: 'pointer',
-                      boxShadow: '0 5px 15px rgba(220, 53, 69, 0.3)',
-                      transition: 'all 0.3s ease'
-                    }}
-                  >
-                    Submit Exam
-                  </button>
+                  <button onClick={handleSubmit} className="exam-start-btn btn-danger" style={{ width: 'auto', padding: '12px 28px' }}>Submit Exam</button>
                 )}
               </>
             ) : (
               // Results
-              <div style={{
-                textAlign: 'center',
-                padding: '40px',
-                backgroundColor: '#e8f5e8',
-                borderRadius: '15px',
-                border: '3px solid #4caf50'
-              }}>
+              <div className="result-card">
                 <h2 style={{
                   color: '#2e7d32',
                   fontSize: '2.5rem',
@@ -960,14 +846,7 @@ export default function Exam() {
                 }}>
                   Exam Completed!
                 </h2>
-                <div style={{
-                  fontSize: '2rem',
-                  color: '#1976d2',
-                  fontWeight: 'bold',
-                  marginBottom: '20px'
-                }}>
-                  Your Score: <span style={{ color: '#4caf50', fontSize: '3rem' }}>{score}</span> / <span style={{ color: '#ff9800' }}>{questions.length}</span>
-                </div>
+                <div style={{ fontSize: '2rem', color: '#1976d2', fontWeight: '700', marginBottom: '20px' }}>Your Score: <span style={{ color: '#4caf50', fontSize: '3rem' }}>{score}</span> / <span style={{ color: '#ff9800' }}>{questions.length}</span></div>
                 <div style={{
                   fontSize: '1.5rem',
                   color: '#666',
@@ -998,77 +877,24 @@ export default function Exam() {
                 </div>
               </div>
             )}
+            </div>
           </div>
 
           {/* Right: Webcam and Alerts */}
-          <div style={{
-            flex: '1',
-            padding: '20px',
-            backgroundColor: '#f8f9fa',
-            borderRadius: '15px',
-            margin: '0 10px',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center'
-          }}>
-            <div style={{
-              backgroundColor: '#2c3e50',
-              color: 'white',
-              padding: '15px',
-              borderRadius: '10px',
-              marginBottom: '20px',
-              textAlign: 'center',
-              fontWeight: 'bold',
-              width: '100%'
-            }}>
-             AI Proctoring Active
+          <div className="exam-right">
+            <div className="card" style={{ padding: '20px' }}>
+            <div className="proctor-badge">AI Proctoring Active</div>
+            
+            <div className="exam-webcam-card">
+              <Webcam audio={false} ref={webcamRef} screenshotFormat="image/jpeg" width={320} height={240} className="exam-webcam" />
             </div>
             
-            <Webcam
-              audio={false}
-              ref={webcamRef}
-              screenshotFormat="image/jpeg"
-              width={320}
-              height={240}
-              style={{
-                borderRadius: '15px',
-                border: '3px solid #e9ecef',
-                marginBottom: '20px',
-                boxShadow: '0 5px 15px rgba(0,0,0,0.1)'
-              }}
-            />
-            
             {headAlert && (
-              <div style={{
-                fontSize: '1.2rem',
-                fontWeight: 'bold',
-                color: headAlert.startsWith("ALERT") ? "#dc3545" : "#28a745",
-                textAlign: 'center',
-                padding: '15px',
-                borderRadius: '10px',
-                backgroundColor: headAlert.startsWith("ALERT") ? '#f8d7da' : '#d4edda',
-                border: `2px solid ${headAlert.startsWith("ALERT") ? '#f5c6cb' : '#c3e6cb'}`,
-                marginBottom: '15px',
-                width: '100%'
-              }}>
-                {headAlert}
-              </div>
+              <div className="alert-card" style={{ background: headAlert.startsWith("ALERT") ? '#f8d7da' : '#d4edda', border: `2px solid ${headAlert.startsWith("ALERT") ? '#f5c6cb' : '#c3e6cb'}`, color: headAlert.startsWith("ALERT") ? 'var(--danger)' : 'var(--success)' }}>{headAlert}</div>
             )}
             
             {objectDetectionStatus && (
-              <div style={{
-                fontSize: '1rem',
-                color: '#6c757d',
-                textAlign: 'center',
-                padding: '10px',
-                borderRadius: '8px',
-                backgroundColor: '#f8f9fa',
-                border: '1px solid #dee2e6',
-                width: '100%',
-                marginBottom: '15px'
-              }}>
-                {objectDetectionStatus}
-              </div>
+              <div className="alert-card" style={{ background: '#f8f9fa', border: '1px solid #dee2e6', color: '#6c757d' }}>{objectDetectionStatus}</div>
             )}
             
             {audioAlert && (
@@ -1086,6 +912,7 @@ export default function Exam() {
                 {audioAlert}
               </div>
             )}
+            </div>
           </div>
         </div>
       )}

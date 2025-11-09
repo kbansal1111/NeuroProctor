@@ -22,10 +22,15 @@ export default function TeacherLogin() {
         .then(res => res.json())
         .then(data => {
             setIsLoading(false);
-            if (data.message === "Login successful") {
+            if (data.message === "Login successful" && data.token) {
+                // store a server-issued token and mark teacher as logged in
+                localStorage.setItem("teacherAuthToken", data.token);
                 localStorage.setItem("teacherLoggedIn", "true");
                 localStorage.setItem("teacherUsername", username);
                 navigate("/proctor-dashboard");
+            } else if (data.message === "Login successful") {
+                // Server did not return a token - require server upgrade for secure access
+                setError("Server did not return a session token. Please contact admin to enable teacher sessions.");
             } else {
                 setError("Invalid teacher credentials");
             }

@@ -32,16 +32,16 @@ A modern, AI-powered online exam proctoring system with real-time object detecti
 - 🔒 **Keyboard Restrictions** - Limits keys to prevent cheating
 
 ### Teacher/Proctor Features
-- � **Secure Teacher Login** - MongoDB-based authentication with hashed passwords
+- 👨‍🏫 **Secure Teacher Login** - MongoDB-based authentication
 - 📊 **Real-time Dashboard** - Live monitoring of all exam sessions
 - 📈 **Analytics & Charts** - Visual representation of alerts and statistics
 - ⚠️ **Alert Management** - View and filter all cheating alerts
-- � **Student Monitoring** - Track individual student behavior
+- 👥 **Student Monitoring** - Track individual student behavior
 
 ### System Features
 - 🧪 **Comprehensive Testing** - 20+ backend tests, 19+ frontend tests
 - 🗄️ **MongoDB Integration** - Scalable database for students, teachers, and alerts
-- 🛡 **Security** - Password hashing, protected routes, session management
+- 🛡 **Security** - Protected routes, session management, teacher authentication
 - 📱 **Responsive Design** - Works on various screen sizes
 - 📝 **Detailed Logging** - All alerts stored with timestamps and metadata
 
@@ -295,7 +295,7 @@ Default teacher accounts (created automatically):
 | teacher1  | teacher123   | teacher |
 | proctor   | proctor123   | proctor |
 
-**Security:** Passwords are hashed with SHA-256 before storage
+**Note:** For development purposes, passwords are stored in plain text. For production, implement proper password hashing.
 
 ### Student Test Account
 
@@ -311,7 +311,7 @@ Default teacher accounts (created automatically):
 ```javascript
 db.teachers.insertOne({
   username: "newteacher",
-  password: hashlib.sha256("password").hexdigest(),  // Hash the password
+  password: "password",  // Plain text for development
   role: "teacher"
 })
 ```
