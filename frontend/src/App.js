@@ -17,7 +17,9 @@ function App() {
         <header className="header">
           <div className="container">
             <div className="brand">
-              <div className="logo">📚</div>
+              <div className="logo">
+                <img src="./logo.png" alt="NeuroProctor Logo" style={{width: "50px", height: "50px"}} />
+              </div>
               <div>NeuroProctor</div>
             </div>
             <nav className="nav">

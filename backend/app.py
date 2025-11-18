@@ -49,7 +49,7 @@ try:
     import torch
     # Try to load custom trained model first, fallback to pretrained
     model_path = 'yolov5n.pt'  # Use the nano model for faster inference
-    if os.path.exists(model_path):
+    if os.path.exists(model_path): 
         model = torch.hub.load('ultralytics/yolov5', 'custom', path=model_path, force_reload=False)
         print(f"✓ Loaded custom YOLOv5 model from {model_path}")
     else:
