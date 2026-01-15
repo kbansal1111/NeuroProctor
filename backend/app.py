@@ -13,7 +13,7 @@ from database import get_db
 # Import route blueprints
 from routes.auth import auth_bp
 from routes.health import health_bp
-from routes.detection import detection_bp
+from routes.detection import detection_bp, init_face_recognizer
 from routes.alerts import alerts_bp
 
 # Import utilities for initialization
@@ -46,6 +46,7 @@ def create_app():
     print("\nInitializing ML models...")
     load_yolo_model()  # YOLO for object detection
     init_face_detection()  # MediaPipe for face detection
+    init_face_recognizer() # LBPH Face Recognition (requires DB)
     print("✓ ML models initialized")
     
     # Register route blueprints

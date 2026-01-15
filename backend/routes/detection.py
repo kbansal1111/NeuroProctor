@@ -128,8 +128,8 @@ def retrain_face_recognizer(database):
     except Exception as e:
         print(f"Error retraining face recognizer: {e}")
 
-# Initialize face recognizer on module load
-init_face_recognizer()
+# Initialize face recognizer on module load - MOVED to app.py to prevent early DB connection
+# init_face_recognizer()
 
 @detection_bp.route('/detect-head', methods=['POST'])
 def detect_head():
