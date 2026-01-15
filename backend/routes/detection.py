@@ -12,14 +12,14 @@ from datetime import datetime
 from bson import Binary
 
 from database import get_db
-from utils.face_utils import (
+from backend_utils.face_utils import (
     get_face_detection, 
     extract_face_roi, 
     check_image_quality,
     preprocess_face_image
 )
-from utils.object_detection import detect_forbidden_objects, is_yolo_available
-from utils.audio_detection import (
+from backend_utils.object_detection import detect_forbidden_objects, is_yolo_available
+from backend_utils.audio_detection import (
     analyze_audio_features, 
     push_audio_event, 
     pop_audio_event

@@ -17,8 +17,8 @@ from routes.detection import detection_bp
 from routes.alerts import alerts_bp
 
 # Import utilities for initialization
-from utils.object_detection import load_yolo_model
-from utils.face_utils import init_face_detection
+from backend_utils.object_detection import load_yolo_model
+from backend_utils.face_utils import init_face_detection
 
 def create_app():
     """

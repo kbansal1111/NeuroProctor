@@ -5,7 +5,7 @@ Handles alert logging, exam alerts, terminations, resets, and unfair means marki
 from flask import Blueprint, request, jsonify
 from datetime import datetime
 from database import get_db
-from utils.audio_detection import clear_audio_queue
+from backend_utils.audio_detection import clear_audio_queue
 
 # Create blueprint
 alerts_bp = Blueprint('alerts', __name__)
