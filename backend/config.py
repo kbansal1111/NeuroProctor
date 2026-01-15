@@ -18,8 +18,9 @@ class Config:
     HOST = os.getenv('HOST', '0.0.0.0')
     
     # MongoDB Configuration
-    MONGODB_URI = os.getenv('MONGODB_URI', 
-                            'mongodb+srv://kartikbansal9152_db_user:kartikbansal9152_db_user@proj101.gfemks2.mongodb.net/?appName=Proj101')
+    MONGODB_URI = os.getenv('MONGODB_URI')
+    if not MONGODB_URI:
+        raise ValueError("MONGODB_URI environment variable is required. Please set it in your .env file.")
     DB_NAME = os.getenv('DB_NAME', 'ai_proctor_db')
     
     # MongoDB Connection Settings (Production-ready)

@@ -5,10 +5,17 @@ Run this script after setting up your MongoDB connection to create initial teach
 
 from pymongo import MongoClient
 from pymongo.errors import DuplicateKeyError
+import os
+from dotenv import load_dotenv
 
-# MongoDB Configuration (update with your connection string)
-MONGO_URI = "mongodb+srv://kartikbansal9152_db_user:TDYGu9eIsZpL6k4b@proj101.gfemks2.mongodb.net/?appName=Proj101"
-DB_NAME = "ai_proctor_db"
+# Load environment variables
+load_dotenv()
+
+# MongoDB Configuration - MUST be set in .env file
+MONGO_URI = os.getenv('MONGODB_URI')
+if not MONGO_URI:
+    raise ValueError("MONGODB_URI environment variable is required. Set it in your .env file.")
+DB_NAME = os.getenv('DB_NAME', 'ai_proctor_db')
 
 def setup_teachers():
     """Create default teacher accounts with plain text passwords"""
