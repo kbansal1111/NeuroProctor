@@ -1,0 +1,31 @@
+# Render Deployment Configuration
+# This file defines the infrastructure for deploying NeuroProctor backend
+
+services:
+  # Web Service - Flask Backend
+  - type: web
+    name: neuroproctor-backend
+    env: python
+    region: oregon
+    plan: free
+    branch: main
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120 --log-level info
+    healthCheckPath: /health
+    envVars:
+      - key: FLASK_ENV
+        value: production
+      - key: MONGODB_URI
+        sync: false  # Set manually in Render dashboard
+      - key: DB_NAME
+        value: ai_proctor_db
+      - key: FRONTEND_URL
+        value: https://neuro-proctor-gjw8.vercel.app
+      - key: ALLOWED_ORIGINS
+        value: https://neuro-proctor-gjw8.vercel.app,http://localhost:3000
+      - key: YOLO_MODEL_PATH
+        value: yolov5n.pt
+      - key: YOLO_CONFIDENCE
+        value: 0.4
+      - key: PYTHON_VERSION
+        value: 3.11.0
