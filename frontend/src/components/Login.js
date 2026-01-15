@@ -14,26 +14,26 @@ export default function Login() {
         setError("");
         setIsLoading(true);
         const loginData = { username, rollNumber, password };
-        fetch("http://localhost:5000/login", {
+        fetch("https://neuroproctor-backend.onrender.com/login", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(loginData)
         })
-        .then(res => res.json())
-        .then(data => {
-            setIsLoading(false);
-            if (data.message === "Login successful") {
-                localStorage.setItem("rollNumber", rollNumber);
-                navigate("/instruction");
-            } else {
-                setError("Invalid Credentials");
-            }
-        })
-        .catch(err => {
-            setIsLoading(false);
-            setError("Network error. Please try again.");
-            console.error("Error fetching data:", err);
-        });
+            .then(res => res.json())
+            .then(data => {
+                setIsLoading(false);
+                if (data.message === "Login successful") {
+                    localStorage.setItem("rollNumber", rollNumber);
+                    navigate("/instruction");
+                } else {
+                    setError("Invalid Credentials");
+                }
+            })
+            .catch(err => {
+                setIsLoading(false);
+                setError("Network error. Please try again.");
+                console.error("Error fetching data:", err);
+            });
     };
 
     return (
@@ -56,24 +56,24 @@ export default function Login() {
 
                     <div className="field">
                         <label>Username</label>
-                        <input type="text" placeholder="Enter your username" value={username} onChange={(e)=>setUsername(e.target.value)} />
+                        <input type="text" placeholder="Enter your username" value={username} onChange={(e) => setUsername(e.target.value)} />
                     </div>
 
                     <div className="field">
                         <label>Roll Number</label>
-                        <input type="text" placeholder="Enter your roll number" value={rollNumber} onChange={(e)=>setRollNumber(e.target.value)} />
+                        <input type="text" placeholder="Enter your roll number" value={rollNumber} onChange={(e) => setRollNumber(e.target.value)} />
                     </div>
 
                     <div className="field">
                         <label>Password</label>
-                        <input type="password" placeholder="Enter your password" value={password} onChange={(e)=>setPassword(e.target.value)} />
+                        <input type="password" placeholder="Enter your password" value={password} onChange={(e) => setPassword(e.target.value)} />
                     </div>
 
                     <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
                         <button type="submit" className="btn btn-primary" disabled={isLoading}>
                             {isLoading ? 'Logging in...' : 'Login to Exam'}
                         </button>
-                        <button type="button" className="btn btn-outline" onClick={()=>navigate('/teacher/login')}>
+                        <button type="button" className="btn btn-outline" onClick={() => navigate('/teacher/login')}>
                             👨‍🏫 Teacher Login
                         </button>
                     </div>

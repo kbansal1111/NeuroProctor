@@ -12,34 +12,34 @@ export default function TeacherLogin() {
         e.preventDefault();
         setError("");
         setIsLoading(true);
-        
+
         const loginData = { username, password };
-        fetch("http://localhost:5000/teacher/login", {
+        fetch("https://neuroproctor-backend.onrender.com/teacher/login", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(loginData)
         })
-        .then(res => res.json())
-        .then(data => {
-            setIsLoading(false);
-            if (data.message === "Login successful" && data.token) {
-                // store a server-issued token and mark teacher as logged in
-                localStorage.setItem("teacherAuthToken", data.token);
-                localStorage.setItem("teacherLoggedIn", "true");
-                localStorage.setItem("teacherUsername", username);
-                navigate("/proctor-dashboard");
-            } else if (data.message === "Login successful") {
-                // Server did not return a token - require server upgrade for secure access
-                setError("Server did not return a session token. Please contact admin to enable teacher sessions.");
-            } else {
-                setError("Invalid teacher credentials");
-            }
-        })
-        .catch(err => {
-            setIsLoading(false);
-            setError("Network error. Please try again.");
-            console.error("Error fetching data:", err);
-        });
+            .then(res => res.json())
+            .then(data => {
+                setIsLoading(false);
+                if (data.message === "Login successful" && data.token) {
+                    // store a server-issued token and mark teacher as logged in
+                    localStorage.setItem("teacherAuthToken", data.token);
+                    localStorage.setItem("teacherLoggedIn", "true");
+                    localStorage.setItem("teacherUsername", username);
+                    navigate("/proctor-dashboard");
+                } else if (data.message === "Login successful") {
+                    // Server did not return a token - require server upgrade for secure access
+                    setError("Server did not return a session token. Please contact admin to enable teacher sessions.");
+                } else {
+                    setError("Invalid teacher credentials");
+                }
+            })
+            .catch(err => {
+                setIsLoading(false);
+                setError("Network error. Please try again.");
+                console.error("Error fetching data:", err);
+            });
     };
 
     return (
@@ -71,7 +71,7 @@ export default function TeacherLogin() {
                     background: "linear-gradient(45deg, #f093fb, #f5576c)",
                     opacity: "0.1"
                 }}></div>
-                
+
                 <div style={{ textAlign: "center", marginBottom: "30px" }}>
                     <div style={{
                         width: "80px",

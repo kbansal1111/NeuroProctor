@@ -26,11 +26,11 @@ export default function ProctorDashboard() {
       setError(null);
 
       // Fetch alerts
-      const alertsResponse = await fetch('http://localhost:5000/alerts');
+      const alertsResponse = await fetch('https://neuroproctor-backend.onrender.com/alerts');
       const alertsData = await alertsResponse.json();
 
       // Fetch UFM students
-      const ufmResponse = await fetch('http://localhost:5000/api/ufm/exam_2025_ai');
+      const ufmResponse = await fetch('https://neuroproctor-backend.onrender.com/api/ufm/exam_2025_ai');
       const ufmData = await ufmResponse.json();
 
       setAlerts(Array.isArray(alertsData) ? alertsData : []);
@@ -51,7 +51,7 @@ export default function ProctorDashboard() {
 
     setIsMarkingUfm(true);
     try {
-      const response = await fetch('http://localhost:5000/api/ufm', {
+      const response = await fetch('https://neuroproctor-backend.onrender.com/api/ufm', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -97,7 +97,7 @@ export default function ProctorDashboard() {
 
       console.log('Sending reset request:', payload);
 
-      const response = await fetch('http://localhost:5000/api/exam/reset', {
+      const response = await fetch('https://neuroproctor-backend.onrender.com/api/exam/reset', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -106,7 +106,7 @@ export default function ProctorDashboard() {
       });
 
       console.log('Reset response status:', response.status);
-      
+
       if (!response.ok) {
         const errorText = await response.text();
         console.error('Reset failed with status:', response.status, errorText);
@@ -121,13 +121,13 @@ export default function ProctorDashboard() {
         await fetchData();
         setShowResetModal(false);
         setResetTarget(null);
-        
+
         const targetDesc = studentId ? `for student ${studentId}` : 'for all students';
         const summary = data.removed || {};
-        const total = (summary.ufm_removed || 0) + (summary.alerts_removed || 0) + 
-                      (summary.exam_alerts_removed || 0) + (summary.exam_terminations_removed || 0) +
-                      (summary.registered_faces_removed || 0);
-        
+        const total = (summary.ufm_removed || 0) + (summary.alerts_removed || 0) +
+          (summary.exam_alerts_removed || 0) + (summary.exam_terminations_removed || 0) +
+          (summary.registered_faces_removed || 0);
+
         alert(`✅ Reset successful ${targetDesc}\n\nRemoved:\n- UFM records: ${summary.ufm_removed || 0}\n- Alerts: ${summary.alerts_removed || 0}\n- Exam alerts: ${summary.exam_alerts_removed || 0}\n- Terminations: ${summary.exam_terminations_removed || 0}\n- Registered faces: ${summary.registered_faces_removed || 0}\n\nTotal: ${total} records`);
       } else {
         console.error('Reset failed:', data);
@@ -195,8 +195,8 @@ export default function ProctorDashboard() {
   // Find student with most alerts
   const studentWithMostAlerts = alertCounts.length > 0
     ? alertCounts.reduce((max, current) =>
-        current.counts.total > max.counts.total ? current : max
-      )
+      current.counts.total > max.counts.total ? current : max
+    )
     : null;
 
   // Calculate summary statistics
@@ -774,14 +774,14 @@ export default function ProctorDashboard() {
                     transition: 'all 0.3s ease',
                     cursor: 'pointer'
                   }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.transform = 'translateY(-2px)';
-                    e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.transform = 'translateY(0)';
-                    e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
-                  }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.transform = 'translateY(-2px)';
+                      e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.transform = 'translateY(0)';
+                      e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
+                    }}
                   >
                     {isFlagged && (
                       <div style={{
@@ -908,7 +908,7 @@ export default function ProctorDashboard() {
                         🚫 Flag for UFM
                       </button>
                     )}
-                    
+
                     {(isFlagged || counts.total > 0) && (
                       <button
                         onClick={(e) => {
@@ -1107,7 +1107,7 @@ export default function ProctorDashboard() {
                 margin: '0 0 15px 0',
                 fontSize: '1rem'
               }}>
-                {resetTarget 
+                {resetTarget
                   ? `This will clear all alerts and UFM flags for student ${resetTarget}.`
                   : 'This will clear ALL alerts and UFM flags for ALL students in this exam.'
                 }

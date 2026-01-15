@@ -14,7 +14,7 @@ export const setupKeyboardRestriction = (options = {}) => {
     examId = null,
     onShortcutWarning = null,
     onKeyAlert = null,
-    backendUrl = 'http://localhost:5000'
+    backendUrl = 'https://neuroproctor-backend.onrender.com'
   } = options;
 
   // Blocked keys list
@@ -24,18 +24,18 @@ export const setupKeyboardRestriction = (options = {}) => {
     'Control', 'ControlLeft', 'ControlRight',
     'Alt', 'AltLeft', 'AltRight',
     'Meta', 'MetaLeft', 'MetaRight',
-    
+
     // Control keys
     'Enter', 'Tab', 'Escape', 'Backspace', 'Delete',
     'Insert', 'Space',
-    
+
     // Navigation keys
     'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown',
     'Home', 'End', 'PageUp', 'PageDown',
-    
+
     // Function keys
     'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12',
-    
+
     // Additional keys
     'ContextMenu', 'PrintScreen', 'ScrollLock', 'Pause'
   ]);
@@ -69,19 +69,19 @@ export const setupKeyboardRestriction = (options = {}) => {
     if (e.ctrlKey || e.altKey || e.metaKey) {
       e.preventDefault();
       e.stopPropagation();
-      
+
       // Warn the student
       if (onShortcutWarning) {
         onShortcutWarning('⚠️ Keyboard shortcuts are disabled during the exam!');
       }
-      
+
       // Record generic shortcut alert
       recordAlert('keyboard_shortcut', { message: 'Shortcut attempt detected' });
-      
+
       if (onKeyAlert) {
         onKeyAlert('shortcut');
       }
-      
+
       return false;
     }
 
@@ -89,14 +89,14 @@ export const setupKeyboardRestriction = (options = {}) => {
     if (blockedKeys.has(e.key) || blockedKeys.has(e.code)) {
       e.preventDefault();
       e.stopPropagation();
-      
+
       // Record generic key press alert
       recordAlert('key_press', { message: 'Blocked key press attempt' });
-      
+
       if (onKeyAlert) {
         onKeyAlert('key_press');
       }
-      
+
       return false;
     }
 
@@ -105,14 +105,14 @@ export const setupKeyboardRestriction = (options = {}) => {
     if (e.key && e.key.length === 1) {
       e.preventDefault();
       e.stopPropagation();
-      
+
       // Record generic character input alert
       recordAlert('character_input', { message: 'Character input attempt detected' });
-      
+
       if (onKeyAlert) {
         onKeyAlert('character_input');
       }
-      
+
       return false;
     }
 
@@ -126,13 +126,13 @@ export const setupKeyboardRestriction = (options = {}) => {
       e.stopPropagation();
       return false;
     }
-    
+
     if (e.key && e.key.length === 1) {
       e.preventDefault();
       e.stopPropagation();
       return false;
     }
-    
+
     return true;
   };
 
@@ -147,16 +147,16 @@ export const setupKeyboardRestriction = (options = {}) => {
   const handleClipboard = (e) => {
     e.preventDefault();
     e.stopPropagation();
-    
+
     if (onShortcutWarning) {
       onShortcutWarning('⚠️ Copy/Paste/Cut operations are not allowed during the exam!');
     }
-    
-    recordAlert('clipboard_attempt', { 
+
+    recordAlert('clipboard_attempt', {
       message: `${e.type} operation blocked`,
-      operation: e.type 
+      operation: e.type
     });
-    
+
     return false;
   };
 
@@ -164,13 +164,13 @@ export const setupKeyboardRestriction = (options = {}) => {
   const handleContextMenu = (e) => {
     e.preventDefault();
     e.stopPropagation();
-    
+
     if (onShortcutWarning) {
       onShortcutWarning('⚠️ Right-click is disabled during the exam!');
     }
-    
+
     recordAlert('context_menu_attempt', { message: 'Right-click attempt detected' });
-    
+
     return false;
   };
 
@@ -222,7 +222,7 @@ export const setupTabSwitchDetection = (options = {}) => {
     studentId = null,
     examId = null,
     onTabSwitch = null,
-    backendUrl = 'http://localhost:5000',
+    backendUrl = 'https://neuroproctor-backend.onrender.com',
     autoTerminate = true
   } = options;
 
@@ -230,7 +230,7 @@ export const setupTabSwitchDetection = (options = {}) => {
     if (document.hidden) {
       // Tab switched or window minimized
       console.warn('⚠️ Tab switch detected!');
-      
+
       // Record termination event
       try {
         await fetch(`${backendUrl}/api/exam/terminate`, {

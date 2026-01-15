@@ -268,7 +268,7 @@ export default function Exam() {
     formData.append("image", blob, "face.jpg");
 
     // Register face "http://127.0.0.1:5000/register-face"
-    const res = await fetch("http://localhost:5000/register-face", {
+    const res = await fetch("https://neuroproctor-backend.onrender.com/register-face", {
       method: "POST",
       body: formData,
     });
@@ -277,7 +277,7 @@ export default function Exam() {
     if (data.status === "registered") {
       try {
         // Reset server-side exam alerts/ufm when this student starts the exam
-        await fetch("http://localhost:5000/api/exam/reset", {
+        await fetch("https://neuroproctor-backend.onrender.com/api/exam/reset", {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ exam_id: examId })
@@ -327,7 +327,7 @@ export default function Exam() {
       onKeyAlert: (type) => {
         console.log(`Key alert recorded: ${type}`);
       },
-      backendUrl: 'http://localhost:5000'
+      backendUrl: 'https://neuroproctor-backend.onrender.com'
     });
 
     // Setup tab switch detection (terminates exam)
@@ -338,7 +338,7 @@ export default function Exam() {
         alert("⚠️ Tab switching detected! Your exam has been automatically submitted.");
         handleSubmit();
       },
-      backendUrl: 'http://localhost:5000',
+      backendUrl: 'https://neuroproctor-backend.onrender.com',
       autoTerminate: true
     });
 
@@ -384,7 +384,7 @@ export default function Exam() {
       formData.append("roll_number", rollNumber);
       formData.append("image", blob, "frame.jpg");
 
-      const res = await fetch("http://localhost:5000/verify-face", {
+      const res = await fetch("https://neuroproctor-backend.onrender.com/verify-face", {
         method: "POST",
         body: formData,
       });
@@ -404,7 +404,7 @@ export default function Exam() {
           }
         };
         
-        fetch("http://localhost:5000/log-alert", {
+        fetch("https://neuroproctor-backend.onrender.com/log-alert", {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(alertData)
@@ -426,7 +426,7 @@ export default function Exam() {
           }
         };
         
-        fetch("http://localhost:5000/log-alert", {
+        fetch("https://neuroproctor-backend.onrender.com/log-alert", {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(alertData)
@@ -453,7 +453,7 @@ export default function Exam() {
       formData.append("student_id", rollNumber);
       formData.append("exam_id", examId);
 
-      const res = await fetch("http://localhost:5000/detect-object", {
+      const res = await fetch("https://neuroproctor-backend.onrender.com/detect-object", {
         method: "POST",
         body: formData,
       });
@@ -580,7 +580,7 @@ export default function Exam() {
         }
       };
 
-      const res = await fetch("http://localhost:5000/detect-audio-anomaly", {
+      const res = await fetch("https://neuroproctor-backend.onrender.com/detect-audio-anomaly", {
         method: "POST",
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -613,7 +613,7 @@ export default function Exam() {
       if (eventSourceRef.current) {
         eventSourceRef.current.close();
       }
-      const es = new EventSource('http://localhost:5000/stream-audio-anomaly');
+      const es = new EventSource('https://neuroproctor-backend.onrender.com/stream-audio-anomaly');
       eventSourceRef.current = es;
 
       es.onmessage = (e) => {
@@ -643,7 +643,7 @@ export default function Exam() {
         setTimeout(() => {
           if (!eventSourceRef.current && started && !submitted) {
             try {
-              eventSourceRef.current = new EventSource('http://localhost:5000/stream-audio-anomaly');
+              eventSourceRef.current = new EventSource('https://neuroproctor-backend.onrender.com/stream-audio-anomaly');
             } catch (e) {}
           }
         }, 3000);
@@ -666,7 +666,7 @@ export default function Exam() {
       .then(blob => {
         const formData = new FormData();
         formData.append('image', blob, 'frame.jpg');
-        fetch("http://localhost:5000/detect-head", {
+        fetch("https://neuroproctor-backend.onrender.com/detect-head", {
           method: "POST",
           body: formData,
         })
@@ -679,7 +679,7 @@ export default function Exam() {
               direction: data.direction,
               time: new Date().toLocaleTimeString()
             };
-            fetch("http://localhost:5000/log-alert", {
+            fetch("https://neuroproctor-backend.onrender.com/log-alert", {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(alertData)
